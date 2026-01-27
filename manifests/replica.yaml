@@ -20,6 +20,7 @@ data:
         -h postgres-primary -p 5432 -U replicator \
         -D "$PGDATA" -Fp -Xs -P -R -S replica_slot_1
       chmod 700 "$PGDATA"
+      chown -R postgres:postgres "$PGDATA"
     fi
 
     # Configure standby mode
@@ -28,8 +29,10 @@ data:
     primary_slot_name = 'replica_slot_1'
     EOF
     touch "$PGDATA/standby.signal"
+    chown postgres:postgres "$PGDATA/postgresql.auto.conf" "$PGDATA/standby.signal"
 
-    exec postgres -D "$PGDATA"
+    # Start postgres as postgres user (not root)
+    exec su-exec postgres postgres -D "$PGDATA"
 
 ---
 apiVersion: v1
@@ -37,6 +40,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: postgres-replica-pvc
 spec:
+  storageClassName: standard
   accessModes:
     - ReadWriteOnce
   resources:
