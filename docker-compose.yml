@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  primary:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pg-primary
+    hostname: primary
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: testdb
+      POSTGRES_REPLICATION_ROLE: primary
+    ports:
+      - "5432:5432"
+    volumes:
+      - primary_data:/var/lib/postgresql/data
+    networks:
+      - pg-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  replica1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pg-replica1
+    hostname: replica1
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: testdb
+      POSTGRES_REPLICATION_ROLE: replica
+      PRIMARY_HOST: primary
+      PRIMARY_PORT: 5432
+      REPLICATION_SLOT: replica_slot_1
+    ports:
+      - "5433:5432"
+    volumes:
+      - replica1_data:/var/lib/postgresql/data
+    networks:
+      - pg-network
+    depends_on:
+      primary:
+        condition: service_healthy
+    command: ["/usr/local/bin/start-replica.sh"]
+
+  replica2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pg-replica2
+    hostname: replica2
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: testdb
+      POSTGRES_REPLICATION_ROLE: replica
+      PRIMARY_HOST: primary
+      PRIMARY_PORT: 5432
+      REPLICATION_SLOT: replica_slot_2
+    ports:
+      - "5434:5432"
+    volumes:
+      - replica2_data:/var/lib/postgresql/data
+    networks:
+      - pg-network
+    depends_on:
+      primary:
+        condition: service_healthy
+    command: ["/usr/local/bin/start-replica.sh"]
+
+volumes:
+  primary_data:
+  replica1_data:
+  replica2_data:
+
+networks:
+  pg-network:
+    driver: bridge
