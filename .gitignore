@@ -1,0 +1,16 @@
+# Environment variables
+.env
+.env.local
+
+# Docker volumes
+*.log
+grafana/data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+Deprecated/

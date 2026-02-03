@@ -1,0 +1,112 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-replica-config
+data:
+  setup-replica.sh: |
+    #!/bin/bash
+    set -e
+
+    # Wait for primary
+    until pg_isready -h postgres-primary -p 5432 -U postgres; do
+      sleep 2
+    done
+
+    # Perform base backup if not initialized
+    if [ ! -s "$PGDATA/PG_VERSION" ]; then
+      rm -rf "$PGDATA"/*
+      PGPASSWORD=replicator_password pg_basebackup \
+        -h postgres-primary -p 5432 -U replicator \
+        -D "$PGDATA" -Fp -Xs -P -R -S replica_slot_1
+      chmod 700 "$PGDATA"
+      chown -R postgres:postgres "$PGDATA"
+    fi
+
+    # Configure standby mode
+    cat > "$PGDATA/postgresql.auto.conf" <<EOF
+    primary_conninfo = 'host=postgres-primary port=5432 user=replicator password=replicator_password'
+    primary_slot_name = 'replica_slot_1'
+    EOF
+    touch "$PGDATA/standby.signal"
+    chown postgres:postgres "$PGDATA/postgresql.auto.conf" "$PGDATA/standby.signal"
+
+    # Start postgres as postgres user 
+    exec su-exec postgres postgres -D "$PGDATA"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-replica-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-replica
+  labels:
+    app: postgres
+    role: replica
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+      role: replica
+  template:
+    metadata:
+      labels:
+        app: postgres
+        role: replica
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: postgres
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          command: ["/bin/bash", "/scripts/setup-replica.sh"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: scripts
+              mountPath: /scripts
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 30
+            periodSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgres-replica-pvc
+        - name: scripts
+          configMap:
+            name: postgres-replica-config
+            defaultMode: 0755
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-replica
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+  selector:
+    app: postgres
+    role: replica

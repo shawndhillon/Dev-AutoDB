@@ -1,0 +1,21 @@
+apiVersion: skaffold/v4beta6
+kind: Config
+metadata:
+  name: pg-monitor
+manifests:
+  kustomize:
+    paths:
+      - k8s
+portForward:
+  - resourceType: service
+    resourceName: postgres-primary
+    port: 5432
+    localPort: 5432
+  - resourceType: service
+    resourceName: prometheus
+    port: 9090
+    localPort: 9090
+  - resourceType: service
+    resourceName: grafana
+    port: 3000
+    localPort: 3000
